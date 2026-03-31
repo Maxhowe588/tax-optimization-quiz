@@ -1,14 +1,12 @@
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { quizSections, QuizAnswers, QuizSection } from '@/lib/quizData';
-import { TaxStrategy, generateRecommendations, generateSummary, estimateTotalSavings } from '@/lib/taxEngine';
+import { FullAnalysis, generateFullAnalysis } from '@/lib/taxEngine';
 
 interface QuizState {
   currentSectionIndex: number;
   answers: QuizAnswers;
   isComplete: boolean;
-  strategies: TaxStrategy[];
-  summary: { incomeProfile: string; missedOpportunities: string[] };
-  totalSavings: string;
+  analysis: FullAnalysis | null;
 }
 
 interface QuizContextType extends QuizState {
@@ -16,6 +14,8 @@ interface QuizContextType extends QuizState {
   visibleSections: QuizSection[];
   totalVisibleSections: number;
   progressPercent: number;
+  currentLayer: number;
+  layerLabel: string;
   setAnswer: (questionId: string, value: string | string[]) => void;
   goNext: () => void;
   goPrev: () => void;
@@ -35,41 +35,61 @@ export function useQuiz() {
 
 function getVisibleSections(answers: QuizAnswers): QuizSection[] {
   return quizSections.filter(section => {
-    // Self-employed section only shows for self-employed, business owners, or contractors
-    if (section.id === 'selfEmployed') {
-      const status = answers.employmentStatus as string;
-      return status === 'Self-employed' || status === 'Business owner' || status === 'Contractor';
+    if (!section.conditionalOn) return true;
+    const { questionId, value } = section.conditionalOn;
+    const answer = answers[questionId];
+    if (Array.isArray(value)) {
+      return value.includes(answer as string);
     }
-    return true;
+    return answer === value;
   });
+}
+
+function isQuestionVisible(
+  questionId: string,
+  conditionalOn: QuizSection['questions'][0]['conditionalOn'],
+  answers: QuizAnswers
+): boolean {
+  if (!conditionalOn) return true;
+  const parentVal = answers[conditionalOn.questionId];
+
+  if (conditionalOn.negate) {
+    // Show when value does NOT match (for debt interest rate fields)
+    if (typeof parentVal === 'string') {
+      const numVal = parseFloat(parentVal.replace(/[^0-9.-]/g, ''));
+      if (conditionalOn.value === '0') {
+        return !isNaN(numVal) && numVal > 0;
+      }
+    }
+    return parentVal !== conditionalOn.value;
+  }
+
+  if (Array.isArray(conditionalOn.value)) {
+    return conditionalOn.value.includes(parentVal as string);
+  }
+  return parentVal === conditionalOn.value;
 }
 
 function isSectionComplete(section: QuizSection, answers: QuizAnswers): boolean {
   return section.questions.every(q => {
-    // Check if question is conditional and should be hidden
-    if (q.conditionalOn) {
-      const parentVal = answers[q.conditionalOn.questionId];
-      if (Array.isArray(q.conditionalOn.value)) {
-        if (!q.conditionalOn.value.includes(parentVal as string)) return true; // skip hidden
-      } else {
-        if (parentVal !== q.conditionalOn.value) return true; // skip hidden
-      }
-    }
+    if (!isQuestionVisible(q.id, q.conditionalOn, answers)) return true;
     const answer = answers[q.id];
     if (q.type === 'multi-select') {
       return Array.isArray(answer) && answer.length > 0;
+    }
+    // Currency and percentage fields: 0 is a valid answer, empty string is not
+    if (q.type === 'currency' || q.type === 'percentage') {
+      return answer !== undefined && answer !== '';
     }
     return answer !== undefined && answer !== '';
   });
 }
 
 const initialState: QuizState = {
-  currentSectionIndex: -1, // -1 = welcome screen
+  currentSectionIndex: -1,
   answers: {},
   isComplete: false,
-  strategies: [],
-  summary: { incomeProfile: '', missedOpportunities: [] },
-  totalSavings: '$0',
+  analysis: null,
 };
 
 export function QuizProvider({ children }: { children: React.ReactNode }) {
@@ -81,8 +101,9 @@ export function QuizProvider({ children }: { children: React.ReactNode }) {
   );
 
   const totalVisibleSections = visibleSections.length;
-
   const currentSection = visibleSections[state.currentSectionIndex] || visibleSections[0];
+  const currentLayer = currentSection?.layer || 1;
+  const layerLabel = currentSection?.layerLabel || 'Basic Info';
 
   const progressPercent = state.currentSectionIndex < 0
     ? 0
@@ -106,17 +127,8 @@ export function QuizProvider({ children }: { children: React.ReactNode }) {
       const visible = getVisibleSections(prev.answers);
       const nextIndex = prev.currentSectionIndex + 1;
       if (nextIndex >= visible.length) {
-        // Quiz complete — generate results
-        const strategies = generateRecommendations(prev.answers);
-        const summary = generateSummary(prev.answers);
-        const totalSavings = estimateTotalSavings(strategies);
-        return {
-          ...prev,
-          isComplete: true,
-          strategies,
-          summary,
-          totalSavings,
-        };
+        const analysis = generateFullAnalysis(prev.answers);
+        return { ...prev, isComplete: true, analysis };
       }
       return { ...prev, currentSectionIndex: nextIndex };
     });
@@ -131,11 +143,7 @@ export function QuizProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const goToSection = useCallback((index: number) => {
-    setState(prev => ({
-      ...prev,
-      currentSectionIndex: index,
-      isComplete: false,
-    }));
+    setState(prev => ({ ...prev, currentSectionIndex: index, isComplete: false }));
   }, []);
 
   const restart = useCallback(() => {
@@ -148,6 +156,8 @@ export function QuizProvider({ children }: { children: React.ReactNode }) {
     visibleSections,
     totalVisibleSections,
     progressPercent,
+    currentLayer,
+    layerLabel,
     setAnswer,
     goNext,
     goPrev,

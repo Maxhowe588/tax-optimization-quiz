@@ -1,11 +1,12 @@
 /*
  * QuestionCard — Nordic Fintech style
  * Renders a single quiz question with appropriate input type
- * Pill buttons for radio/yes-no, checkboxes for multi-select
+ * Supports: input, currency, percentage, select, radio, yes-no, multi-select
  */
 
+import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Check } from 'lucide-react';
+import { Check, DollarSign, Percent } from 'lucide-react';
 import { QuizQuestion } from '@/lib/quizData';
 import { useQuiz } from '@/contexts/QuizContext';
 
@@ -21,10 +22,23 @@ export default function QuestionCard({ question, index }: Props) {
   // Check conditional visibility
   if (question.conditionalOn) {
     const parentVal = answers[question.conditionalOn.questionId];
-    if (Array.isArray(question.conditionalOn.value)) {
-      if (!question.conditionalOn.value.includes(parentVal as string)) return null;
+
+    if (question.conditionalOn.negate) {
+      // Show when value does NOT match
+      if (typeof parentVal === 'string') {
+        const numVal = parseFloat(parentVal.replace(/[^0-9.-]/g, ''));
+        if (question.conditionalOn.value === '0') {
+          if (isNaN(numVal) || numVal <= 0) return null;
+        }
+      } else {
+        if (parentVal === question.conditionalOn.value) return null;
+      }
     } else {
-      if (parentVal !== question.conditionalOn.value) return null;
+      if (Array.isArray(question.conditionalOn.value)) {
+        if (!question.conditionalOn.value.includes(parentVal as string)) return null;
+      } else {
+        if (parentVal !== question.conditionalOn.value) return null;
+      }
     }
   }
 
@@ -45,6 +59,12 @@ export default function QuestionCard({ question, index }: Props) {
       {question.type === 'input' && (
         <InputField question={question} value={value as string} onChange={setAnswer} />
       )}
+      {question.type === 'currency' && (
+        <CurrencyField question={question} value={value as string} onChange={setAnswer} />
+      )}
+      {question.type === 'percentage' && (
+        <PercentageField question={question} value={value as string} onChange={setAnswer} />
+      )}
       {question.type === 'select' && (
         <SelectField question={question} value={value as string} onChange={setAnswer} />
       )}
@@ -61,19 +81,96 @@ export default function QuestionCard({ question, index }: Props) {
   );
 }
 
+// ─── INPUT FIELDS ───
+
 function InputField({ question, value, onChange }: {
   question: QuizQuestion; value: string; onChange: (id: string, v: string) => void;
 }) {
   return (
     <input
       type="number"
-      min="0"
-      max="120"
+      min={question.validation?.min ?? 0}
+      max={question.validation?.max ?? 120}
       value={value || ''}
       onChange={e => onChange(question.id, e.target.value)}
       placeholder={question.placeholder}
       className="w-full max-w-xs px-4 py-3 rounded-xl border border-border bg-card text-charcoal placeholder:text-charcoal-light/40 focus:outline-none focus:ring-2 focus:ring-forest/30 focus:border-forest transition-all duration-200"
     />
+  );
+}
+
+function CurrencyField({ question, value, onChange }: {
+  question: QuizQuestion; value: string; onChange: (id: string, v: string) => void;
+}) {
+  const [displayValue, setDisplayValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const isInitialized = useRef(false);
+
+  useEffect(() => {
+    if (!isInitialized.current && value) {
+      const num = parseFloat(value.replace(/[^0-9.-]/g, ''));
+      if (!isNaN(num) && num > 0) {
+        setDisplayValue(formatNumber(num));
+      }
+      isInitialized.current = true;
+    }
+  }, [value]);
+
+  const formatNumber = (num: number): string => {
+    return new Intl.NumberFormat('en-CA').format(Math.round(num));
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/[^0-9]/g, '');
+    if (raw === '') {
+      setDisplayValue('');
+      onChange(question.id, '');
+      return;
+    }
+    const num = parseInt(raw);
+    if (!isNaN(num)) {
+      setDisplayValue(formatNumber(num));
+      onChange(question.id, num.toString());
+    }
+  };
+
+  return (
+    <div className="relative w-full max-w-xs">
+      <div className="absolute left-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-sage-light flex items-center justify-center">
+        <DollarSign className="w-4 h-4 text-forest" />
+      </div>
+      <input
+        ref={inputRef}
+        type="text"
+        inputMode="numeric"
+        value={displayValue}
+        onChange={handleChange}
+        placeholder={question.placeholder}
+        className="w-full pl-14 pr-4 py-3 rounded-xl border border-border bg-card text-charcoal placeholder:text-charcoal-light/40 focus:outline-none focus:ring-2 focus:ring-forest/30 focus:border-forest transition-all duration-200"
+      />
+    </div>
+  );
+}
+
+function PercentageField({ question, value, onChange }: {
+  question: QuizQuestion; value: string; onChange: (id: string, v: string) => void;
+}) {
+  return (
+    <div className="relative w-full max-w-xs">
+      <input
+        type="number"
+        min={question.validation?.min ?? 0}
+        max={question.validation?.max ?? 100}
+        step="0.1"
+        value={value || ''}
+        onChange={e => onChange(question.id, e.target.value)}
+        placeholder={question.placeholder}
+        className="w-full pr-12 px-4 py-3 rounded-xl border border-border bg-card text-charcoal placeholder:text-charcoal-light/40 focus:outline-none focus:ring-2 focus:ring-forest/30 focus:border-forest transition-all duration-200"
+      />
+      <div className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-sage-light flex items-center justify-center">
+        <Percent className="w-4 h-4 text-forest" />
+      </div>
+    </div>
   );
 }
 

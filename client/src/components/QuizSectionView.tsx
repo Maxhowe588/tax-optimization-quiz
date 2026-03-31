@@ -1,14 +1,13 @@
 /*
  * QuizSectionView — Nordic Fintech style
- * Renders a full quiz section with questions, navigation, and smooth transitions
- * Card-based layout with generous padding
+ * Renders a full quiz section with questions, navigation, layer indicator, and smooth transitions
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, ArrowRight, User, Briefcase, PiggyBank, Home,
   Users, Receipt, Building2, BadgePercent, TrendingUp, Clock,
-  Sunset, Target
+  Sunset, Target, Wallet, Banknote, CreditCard, BarChart3
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useQuiz } from '@/contexts/QuizContext';
@@ -18,17 +17,25 @@ import ProgressBar from './ProgressBar';
 const iconMap: Record<string, React.ElementType> = {
   User, Briefcase, PiggyBank, Home, Users, Receipt,
   Building2, BadgePercent, TrendingUp, Clock, Sunset, Target,
+  Wallet, Banknote, CreditCard, BarChart3,
+};
+
+const layerColors: Record<number, { bg: string; text: string; border: string }> = {
+  1: { bg: 'bg-forest/8', text: 'text-forest', border: 'border-forest/20' },
+  2: { bg: 'bg-gold/10', text: 'text-gold', border: 'border-gold/20' },
+  3: { bg: 'bg-charcoal/8', text: 'text-charcoal', border: 'border-charcoal/20' },
+  4: { bg: 'bg-sage/20', text: 'text-forest-light', border: 'border-sage' },
 };
 
 export default function QuizSectionView() {
   const {
     currentSection, currentSectionIndex, canGoNext, canGoPrev,
-    goNext, goPrev, totalVisibleSections,
+    goNext, goPrev, totalVisibleSections, currentLayer, layerLabel,
   } = useQuiz();
 
   const isLastSection = currentSectionIndex === totalVisibleSections - 1;
-
   const SectionIcon = iconMap[currentSection.icon] || User;
+  const lc = layerColors[currentLayer] || layerColors[1];
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -50,6 +57,16 @@ export default function QuizSectionView() {
               exit={{ opacity: 0, y: -20 }}
               transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
             >
+              {/* Layer badge */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium mb-4 ${lc.bg} ${lc.text} border ${lc.border}`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                Layer {currentLayer}: {layerLabel}
+              </motion.div>
+
               {/* Section header */}
               <div className="mb-8">
                 <motion.div
@@ -92,7 +109,7 @@ export default function QuizSectionView() {
                   disabled={!canGoNext}
                   className="rounded-full px-8 bg-forest hover:bg-forest-light text-white shadow-md shadow-forest/15 disabled:opacity-40 disabled:shadow-none transition-all duration-200"
                 >
-                  {currentSectionIndex === -1 ? 'Get Started' : isLastSection ? 'See My Results' : 'Continue'}
+                  {isLastSection ? 'See My Results' : 'Continue'}
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </div>
